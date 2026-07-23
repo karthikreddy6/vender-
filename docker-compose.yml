@@ -1,16 +1,4 @@
 services:
-  db:
-    image: postgres:16-alpine
-    restart: always
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: onfood
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
   vendor-server:
     build:
       context: .
@@ -19,12 +7,12 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/onfood
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@host.docker.internal:5432/onfood
       - JWT_SECRET=super_secret_key_for_development_purposes
       - JWT_ISSUER=onfood
       - SQL_ECHO=false
-    depends_on:
-      - db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   db-manager:
     build:
@@ -34,10 +22,7 @@ services:
     ports:
       - "8002:8002"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/onfood
+      - DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/onfood
       - PORT=8002
-    depends_on:
-      - db
-
-volumes:
-  postgres_data:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
