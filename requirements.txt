@@ -1,0 +1,12 @@
+fastapi>=0.110.0
+uvicorn>=0.28.0
+sqlalchemy>=2.0.28
+asyncpg>=0.29.0
+pyjwt[cryptography]>=2.8.0
+sse-starlette>=2.0.0
+aiocache>=0.12.2
+pydantic-settings>=2.2.1
+pydantic[email]>=2.6.4
+alembic>=1.13.1
+python-multipart>=0.0.9
+bcrypt>=4.0.0

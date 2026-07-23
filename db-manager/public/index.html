@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OnFood Database Manager</title>
+  <style>
+    * { box-sizing: border-box; } body { margin: 0; font-family: Arial, sans-serif; background: #f4f6f8; color: #17212b; }
+    header { display: flex; gap: 12px; align-items: center; padding: 16px 24px; background: #0d3b2e; color: white; }
+    h1 { font-size: 20px; margin: 0 auto 0 0; } select, button, input { font: inherit; padding: 8px; border-radius: 5px; border: 1px solid #bbc5cc; }
+    button { cursor: pointer; border: 0; background: #16794a; color: white; } button.danger { background: #bf3232; } button.secondary { background: #52616b; }
+    main { padding: 20px 24px; } #message { min-height: 24px; color: #a22323; } #new-form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; padding: 12px; background: white; border-radius: 7px; }
+    #menu-tools { display: none; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; padding: 12px; background: #e8f0ed; border-radius: 7px; } #menu-tools input { min-width: 240px; }
+    #new-form input { min-width: 150px; } .table-wrap { overflow: auto; background: white; border-radius: 7px; box-shadow: 0 1px 3px #0002; }
+    table { border-collapse: collapse; width: 100%; min-width: 850px; } th, td { border-bottom: 1px solid #e2e7ea; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #e8f0ed; white-space: nowrap; } td input { width: 150px; padding: 6px; } td.id { max-width: 150px; font-family: monospace; font-size: 12px; word-break: break-all; }
+    .actions { white-space: nowrap; } label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #44515a; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OnFood Database Manager</h1>
+    <select id="resource"></select>
+    <button class="secondary" id="reload">Reload</button>
+  </header>
+  <main>
+    <p id="message">Choose a table to edit.</p>
+    <div id="menu-tools">
+      <input id="menu-search" placeholder="Search name, category, canteen, description…">
+      <select id="menu-availability"><option value="all">All availability</option><option value="true">Available</option><option value="false">Unavailable</option></select>
+      <select id="menu-sort"><option value="name">Sort: name</option><option value="price">Sort: price</option><option value="stock">Sort: stock</option><option value="preparation_time_minutes">Sort: preparation time</option><option value="updated_at">Sort: last updated</option></select>
+      <select id="menu-direction"><option value="asc">Ascending</option><option value="desc">Descending</option></select>
+    </div>
+    <form id="new-form"></form>
+    <div class="table-wrap"><table><thead id="head"></thead><tbody id="body"></tbody></table></div>
+  </main>
+  <script>
+    const fields = {
+      colleges: ['name','is_active'], canteens: ['name','is_active'],
+      categories: ['name','icon_url','display_order','is_active'],
+      menu: ['name','price','original_price','discount_percent','category_id','canteen_id','image_url','description','stock','is_student_visible','is_special_offer','is_available','preparation_time_minutes'],
+      orders: ['status','canteen_id','pickup_number','order_token','estimated_ready_at','actual_ready_at','scheduled_date','scheduled_slot_id','notes'],
+      users: ['name','email','phone','roll_number','college','college_id','preferred_canteen_id','use_roll_number_as_order_token'],
+      vendors: ['name','email','role','is_active','canteen_id'], staff: ['name','role','status','image_url','canteen_id'],
+      time_slots: ['start_time','end_time','max_orders','is_active'], kitchen_settings: ['base_prep_buffer_minutes','max_concurrent_orders','is_accepting_orders']
+    };
+    const resource = document.querySelector('#resource'), message = document.querySelector('#message');
+    let rows = [];
+    const menuTools = document.querySelector('#menu-tools'), menuSearch = document.querySelector('#menu-search'), menuAvailability = document.querySelector('#menu-availability'), menuSort = document.querySelector('#menu-sort'), menuDirection = document.querySelector('#menu-direction');
+    Object.keys(fields).forEach(name => resource.add(new Option(name.replaceAll('_',' '), name)));
+    const isBool = value => typeof value === 'boolean';
+    const input = (key, value = '') => {
+      const element = document.createElement('input'); element.name = key;
+      if (isBool(value) || key.startsWith('is_') || key === 'use_roll_number_as_order_token') { element.type = 'checkbox'; element.checked = value === true; }
+      else { element.value = value ?? ''; }
+      return element;
+    };
+    async function request(url, options) {
+      const response = await fetch(url, options); const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.detail || data?.error || 'Request failed'); return data;
+    }
+    function buildNewForm() {
+      const form = document.querySelector('#new-form'); form.replaceChildren();
+      fields[resource.value].forEach(key => { const label = document.createElement('label'); label.textContent = key; label.append(input(key)); form.append(label); });
+      const button = document.createElement('button'); button.textContent = 'Add row'; form.append(button);
+    }
+    function values(container) {
+      return Object.fromEntries(fields[resource.value].map(key => { const field = container.querySelector(`[name="${key}"]`); return [key, field.type === 'checkbox' ? field.checked : field.value || null]; }));
+    }
+    function visibleRows() {
+      if (resource.value !== 'menu') return rows;
+      const term = menuSearch.value.trim().toLowerCase(), availability = menuAvailability.value;
+      const filtered = rows.filter(row => (availability === 'all' || String(row.is_available) === availability) && (!term || ['name','category_id','canteen_id','description'].some(key => String(row[key] ?? '').toLowerCase().includes(term))));
+      const key = menuSort.value, direction = menuDirection.value === 'asc' ? 1 : -1;
+      return filtered.sort((a, b) => {
+        const aValue = a[key] ?? '', bValue = b[key] ?? '';
+        if (typeof aValue === 'number' || typeof bValue === 'number' || !Number.isNaN(Number(aValue)) && !Number.isNaN(Number(bValue))) return (Number(aValue) - Number(bValue)) * direction;
+        return String(aValue).localeCompare(String(bValue)) * direction;
+      });
+    }
+    function render() {
+      const keys = fields[resource.value]; document.querySelector('#head').innerHTML = `<tr><th>ID</th>${keys.map(key => `<th>${key}</th>`).join('')}<th>Actions</th></tr>`;
+      const body = document.querySelector('#body'); body.replaceChildren();
+      visibleRows().forEach(row => {
+        const tr = document.createElement('tr'); const id = document.createElement('td'); id.className = 'id'; id.textContent = row.id; tr.append(id);
+        keys.forEach(key => { const cell = document.createElement('td'); cell.append(input(key, row[key])); tr.append(cell); });
+        const actions = document.createElement('td'); actions.className = 'actions';
+        const save = document.createElement('button'); save.textContent = 'Save'; save.onclick = async () => { try { await request(`/api/admin/${resource.value}/${row.id}`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(values(tr)) }); message.textContent = 'Saved.'; message.style.color = '#16794a'; await load(); } catch (error) { message.textContent = error.message; message.style.color = '#a22323'; } };
+        const remove = document.createElement('button'); remove.textContent = 'Delete'; remove.className = 'danger'; remove.onclick = async () => { if (!confirm(`Delete ${row.id}?`)) return; try { await request(`/api/admin/${resource.value}/${row.id}`, {method:'DELETE'}); await load(); } catch (error) { message.textContent = error.message; } };
+        actions.append(save, document.createTextNode(' '), remove); tr.append(actions); body.append(tr);
+      });
+    }
+    async function load() { try { rows = await request(`/api/admin/${resource.value}?limit=500`); menuTools.style.display = resource.value === 'menu' ? 'flex' : 'none'; buildNewForm(); render(); message.textContent = `${rows.length} rows loaded. Edit a value and press Save.`; message.style.color = '#16794a'; } catch (error) { message.textContent = error.message; message.style.color = '#a22323'; } }
+    document.querySelector('#new-form').onsubmit = async event => { event.preventDefault(); try { await request(`/api/admin/${resource.value}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values(event.currentTarget)) }); event.currentTarget.reset(); await load(); } catch (error) { message.textContent = error.message; message.style.color = '#a22323'; } };
+    resource.onchange = load; document.querySelector('#reload').onclick = load;
+    menuSearch.oninput = render;
+    [menuAvailability, menuSort, menuDirection].forEach(element => element.onchange = render);
+    load();
+  </script>
+</body>
+</html>
