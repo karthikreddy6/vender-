@@ -25,18 +25,18 @@ async def verify_and_stamp_db(db_url: str):
                 if exists:
                     existing_tables.append(table)
             
-            # Check if alembic_version table exists
+            # Check if alembic_version_vendor table exists
             alembic_exists = await conn.fetchval(
-                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'alembic_version')"
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'alembic_version_vendor')"
             )
             
             has_version = False
             if alembic_exists:
-                version_count = await conn.fetchval("SELECT COUNT(*) FROM alembic_version")
+                version_count = await conn.fetchval("SELECT COUNT(*) FROM alembic_version_vendor")
                 if version_count > 0:
                     has_version = True
             
-            print(f"Database check: existing key tables = {existing_tables}, alembic_version exists = {alembic_exists}, has version = {has_version}")
+            print(f"Database check: existing key tables = {existing_tables}, alembic_version_vendor exists = {alembic_exists}, has version = {has_version}")
             
             if existing_tables and (not alembic_exists or not has_version):
                 print("Database tables already exist, but no alembic version was found. Stamping database to 'head' to prevent failing migration.")
