@@ -25,4 +25,4 @@ COPY . /app/
 EXPOSE 8001
 
 # Run the database availability check, apply migrations, and start uvicorn
-CMD ["sh", "-c", "python scripts/wait_for_db.py && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8001"]
+CMD ["sh", "-c", "python scripts/wait_for_db.py && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8001 --proxy-headers --forwarded-allow-ips='*'"]
