@@ -93,4 +93,4 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ error: 'Database operation failed', detail: error.message });
 });
 
-app.listen(port, '127.0.0.1', () => console.log(`OnFood database manager listening at http://127.0.0.1:${port}`));
+app.listen(port, '0.0.0.0', () => console.log(`OnFood database manager listening at http://0.0.0.0:${port}`));
