@@ -1,4 +1,5 @@
 import os
+import sys
 import socket
 import time
 import asyncio
@@ -39,10 +40,10 @@ async def verify_and_stamp_db(db_url: str):
             print(f"Database check: existing key tables = {existing_tables}, alembic_version_vendor exists = {alembic_exists}, has version = {has_version}")
             
             if existing_tables and (not alembic_exists or not has_version):
-                print("Database tables already exist, but no alembic version was found. Stamping database to 'head' to prevent failing migration.")
-                result = subprocess.run(["alembic", "stamp", "head"], capture_output=True, text=True)
+                print("Database tables already exist, but no alembic version was found. Stamping database to 'a2c4e6f8b0d1' to prevent failing migration.")
+                result = subprocess.run([sys.executable, "-m", "alembic", "stamp", "a2c4e6f8b0d1"], capture_output=True, text=True)
                 if result.returncode == 0:
-                    print("Successfully stamped database to head.")
+                    print("Successfully stamped database to a2c4e6f8b0d1.")
                 else:
                     print(f"Warning: Failed to stamp database: {result.stderr}")
             else:

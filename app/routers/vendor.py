@@ -23,9 +23,9 @@ vendor_stream = SSEConnectionManager()
 vendor_websocket_stream = WebSocketConnectionManager()
 
 VENDOR_ORDER_TRANSITIONS = {
-    OrderStatus.PLACED: {OrderStatus.PREPARING},
-    OrderStatus.SCHEDULED: {OrderStatus.PREPARING},
-    OrderStatus.PREPARING: {OrderStatus.READY_FOR_PICKUP},
+    OrderStatus.PLACED: {OrderStatus.PREPARING, OrderStatus.REJECTED},
+    OrderStatus.SCHEDULED: {OrderStatus.PREPARING, OrderStatus.REJECTED},
+    OrderStatus.PREPARING: {OrderStatus.READY_FOR_PICKUP, OrderStatus.REJECTED},
     OrderStatus.READY_FOR_PICKUP: {OrderStatus.DELIVERED},
 }
 

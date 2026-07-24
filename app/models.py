@@ -20,6 +20,8 @@ class OrderStatus(str, enum.Enum):
     PREPARING = "PREPARING"
     READY_FOR_PICKUP = "READY_FOR_PICKUP"
     DELIVERED = "DELIVERED"
+    CANCELLED = "CANCELLED"
+    REJECTED = "REJECTED"
 
 class TicketStatus(str, enum.Enum):
     OPEN = "OPEN"
