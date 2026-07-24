@@ -21,6 +21,14 @@ async def lifespan(app: FastAPI):
             if not account:
                 db.add(VendorAccount(name="OnFood Vendor", email="vendor@onfood.local", role="admin",
                                      hashed_password=hash_password("vendor_password")))
+            else:
+                # Upgrade legacy plain bcrypt password hash format to SHA-256 + bcrypt
+                import bcrypt
+                pwd_bytes = "vendor_password".encode('utf-8')
+                hashed_bytes = account.hashed_password.encode('utf-8')
+                if bcrypt.checkpw(pwd_bytes, hashed_bytes):
+                    print("[Migration] Upgrading vendor@onfood.local password to SHA-256 + bcrypt format...")
+                    account.hashed_password = hash_password("vendor_password")
             await db.commit()
     except Exception as exc:
         print(f"[Startup warning] {exc}. Run alembic upgrade head first.")

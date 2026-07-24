@@ -6,17 +6,30 @@ from typing import Optional
 import bcrypt
 from app.config import settings
 
+import hashlib
+import re
+
+def is_sha256_hex(s: str) -> bool:
+    """Checks if a string is a 64-character SHA-256 hex string."""
+    return bool(re.match(r"^[0-9a-fA-F]{64}$", s))
+
+def sha256_hash(password: str) -> str:
+    """Generates the SHA-256 hex hash of a password."""
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
 def hash_password(password: str) -> str:
-    """Hashes a plain text password using bcrypt."""
-    pwd_bytes = password.encode('utf-8')
+    """Hashes a plain text password (or SHA-256 hex) using bcrypt."""
+    target_hash = password.lower() if is_sha256_hex(password) else sha256_hash(password)
+    pwd_bytes = target_hash.encode('utf-8')
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(pwd_bytes, salt)
     return hashed.decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifies a plain text password against its hashed value."""
+    """Verifies a plain text password (or SHA-256 hex) against its hashed value."""
     try:
-        pwd_bytes = plain_password.encode('utf-8')
+        target_hash = plain_password.lower() if is_sha256_hex(plain_password) else sha256_hash(plain_password)
+        pwd_bytes = target_hash.encode('utf-8')
         hashed_bytes = hashed_password.encode('utf-8')
         return bcrypt.checkpw(pwd_bytes, hashed_bytes)
     except Exception:
