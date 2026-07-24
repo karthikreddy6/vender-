@@ -111,7 +111,11 @@ async def update_order(order_id: UUID, request: StatusRequest, db: AsyncSession 
     order.status = new_status
     if new_status == OrderStatus.READY_FOR_PICKUP:
         order.actual_ready_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    if new_status == OrderStatus.DELIVERED and old_status != OrderStatus.DELIVERED:
+
+    # ── Stock Management ──────────────────────────────────────────────
+    # Deduct stock when vendor ACCEPTS the order (transitions to PREPARING).
+    # This "holds" the quantity so other students cannot order sold-out items.
+    if new_status == OrderStatus.PREPARING and old_status in (OrderStatus.PLACED, OrderStatus.SCHEDULED):
         for item in order.items:
             menu_item = item.menu_item
             if not menu_item and item.menu_item_id:
@@ -119,6 +123,23 @@ async def update_order(order_id: UUID, request: StatusRequest, db: AsyncSession 
                 menu_item = mi_result.scalar_one_or_none()
             if menu_item:
                 menu_item.stock = max(0, (menu_item.stock or 0) - item.quantity)
+                # Auto-disable the item if stock hits zero
+                if menu_item.stock <= 0:
+                    menu_item.is_available = False
+
+    # Restore stock when order is REJECTED or CANCELLED after it was already accepted.
+    # If the order was still PLACED/SCHEDULED (never accepted), nothing was deducted.
+    if new_status in (OrderStatus.REJECTED, OrderStatus.CANCELLED) and old_status == OrderStatus.PREPARING:
+        for item in order.items:
+            menu_item = item.menu_item
+            if not menu_item and item.menu_item_id:
+                mi_result = await db.execute(select(MenuItem).where(MenuItem.id == item.menu_item_id))
+                menu_item = mi_result.scalar_one_or_none()
+            if menu_item:
+                menu_item.stock = (menu_item.stock or 0) + item.quantity
+                # Re-enable the item since stock is now available again
+                if not menu_item.is_available:
+                    menu_item.is_available = True
     await db.commit()
     payload = order_json(order)
     await vendor_stream.broadcast_to_user("all", "order-status", payload)
@@ -221,6 +242,9 @@ async def update_menu(item_id: UUID, request: MenuUpdateRequest, db: AsyncSessio
         await ensure_unique_menu_name(db, vendor.get("canteen_id"), request.name, item.id)
     for field, value in request.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
+    # Auto-enable item when vendor restocks (sets stock > 0)
+    if request.stock is not None and request.stock > 0 and not item.is_available:
+        item.is_available = True
     await db.commit()
     await db.refresh(item)
     return menu_json(item)
