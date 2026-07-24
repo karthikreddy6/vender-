@@ -12,8 +12,21 @@ if (!databaseUrl) throw new Error('DATABASE_URL is required. Copy .env.admin.exa
 
 const pool = new Pool({ connectionString: databaseUrl });
 const app = express();
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+
+// Access Logging Middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const ip = req.ip || req.socket.remoteAddress;
+    console.log(`[${new Date().toISOString()}] ${ip} - ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms)`);
+  });
+  next();
+});
+
 app.use(express.static('public'));
 
 const resources = {
