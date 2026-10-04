@@ -18,7 +18,7 @@ def _resolve_static_images_dir() -> str:
     return local_fallback
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/onfood"
+    DATABASE_URL: str = "postgresql+asyncpg://buvvadb:buvvA%406@localhost:5432/onfood"
     SQL_ECHO: bool = False
     JWT_SECRET: str = "super_secret_key_for_development_purposes"
     JWT_ISSUER: str = "onfood"

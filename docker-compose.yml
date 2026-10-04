@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@host.docker.internal:5432/onfood
+      - DATABASE_URL=postgresql+asyncpg://buvvadb:buvvA%406@host.docker.internal:5432/onfood
       - SQL_ECHO=false
       - STATIC_IMAGES_DIR=/app/static/images
     volumes:
@@ -26,7 +26,7 @@ services:
     ports:
       - "8002:8002"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/onfood
+      - DATABASE_URL=postgresql://buvvadb:buvvA%406@host.docker.internal:5432/onfood
       - PORT=8002
     extra_hosts:
       - "host.docker.internal:host-gateway"
