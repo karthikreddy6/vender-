@@ -6,10 +6,10 @@ services:
     restart: always
     ports:
       - "8001:8001"
-    env_file:
-      - .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://buvvadb:buvvA%406@host.docker.internal:5432/onfood
+      - JWT_SECRET=${JWT_SECRET:-super_secret_key_for_development_purposes}
+      - JWT_ISSUER=${JWT_ISSUER:-onfood}
       - SQL_ECHO=false
       - STATIC_IMAGES_DIR=/app/static/images
     volumes:
