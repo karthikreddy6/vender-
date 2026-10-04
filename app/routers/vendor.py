@@ -1,8 +1,10 @@
 import asyncio
+import os
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 from sqlalchemy import func, select
@@ -36,11 +38,17 @@ def normalized_menu_name(name: str) -> str:
 
 async def ensure_unique_menu_name(db: AsyncSession, canteen_id, name: str, excluded_id: UUID | None = None) -> None:
     """Reject duplicate menu names inside one canteen, ignoring case and extra spaces."""
-    result = await db.execute(select(MenuItem.id, MenuItem.name).where(MenuItem.canteen_id == canteen_id))
     target = normalized_menu_name(name)
-    for item_id, item_name in result.all():
-        if item_id != excluded_id and normalized_menu_name(item_name) == target:
-            raise BadRequestException(f"Duplicate menu item: '{item_name}' already exists in this canteen")
+    query = select(MenuItem.id, MenuItem.name).where(
+        MenuItem.canteen_id == canteen_id,
+        func.lower(func.btrim(func.regexp_replace(MenuItem.name, r'\s+', ' ', 'g'))) == target
+    )
+    if excluded_id is not None:
+        query = query.where(MenuItem.id != excluded_id)
+    result = await db.execute(query)
+    existing = result.first()
+    if existing:
+        raise BadRequestException(f"Duplicate menu item: '{existing[1]}' already exists in this canteen")
 
 
 def websocket_vendor_token(websocket: WebSocket) -> bool:
@@ -77,6 +85,10 @@ def order_json(order: Order) -> dict:
         "scheduledDate": order.scheduled_date.isoformat() if order.scheduled_date else None,
         "scheduledSlotId": str(order.scheduled_slot_id) if order.scheduled_slot_id else None,
         "notes": order.notes, "createdAt": order.created_at.isoformat() if order.created_at else None,
+        "paymentMethod": "Online / UPI" if order.notes and "UPI" in order.notes.upper() else "Cash on Counter",
+        "payment_method": "Online / UPI" if order.notes and "UPI" in order.notes.upper() else "Cash on Counter",
+        "paymentStatus": "Paid" if order.status == OrderStatus.DELIVERED else "Pay at Counter",
+        "payment_status": "Paid" if order.status == OrderStatus.DELIVERED else "Pay at Counter",
         "items": [{"menuItemId": str(item.menu_item_id), "name": item.menu_item.name if item.menu_item else None,
                    "quantity": item.quantity, "price": str(item.price_at_time_of_order)} for item in order.items]
     }
@@ -137,12 +149,15 @@ async def update_order(order_id: UUID, request: StatusRequest, db: AsyncSession 
                 menu_item = mi_result.scalar_one_or_none()
             if menu_item:
                 menu_item.stock = (menu_item.stock or 0) + item.quantity
-                # Re-enable the item since stock is now available again
-                if not menu_item.is_available:
+                # Only re-enable the item if it was auto-disabled by stock
+                # reaching zero (stock was 0 before restore). Don't override
+                # a manual disable by the vendor.
+                if not menu_item.is_available and (menu_item.stock - item.quantity) <= 0:
                     menu_item.is_available = True
     await db.commit()
     payload = order_json(order)
-    await vendor_stream.broadcast_to_user("all", "order-status", payload)
+    canteen_channel = f"canteen_{order.canteen_id}" if order.canteen_id else "all"
+    await vendor_stream.broadcast_to_user(canteen_channel, "order-status", payload)
     await vendor_websocket_stream.broadcast("order-status", payload)
 
     # Notify event bridge (real-time sync to customer server)
@@ -157,8 +172,9 @@ async def update_order(order_id: UUID, request: StatusRequest, db: AsyncSession 
 
 @router.get("/orders/stream")
 async def stream_orders(vendor=Depends(get_current_vendor)):
+    canteen_channel = f"canteen_{vendor.get('canteen_id')}" if vendor.get("canteen_id") else "all"
     async def event_generator():
-        queue = await vendor_stream.subscribe("all")
+        queue = await vendor_stream.subscribe(canteen_channel)
         try:
             yield {"event": "connected", "data": "ok"}
             while True:
@@ -166,7 +182,7 @@ async def stream_orders(vendor=Depends(get_current_vendor)):
         except asyncio.CancelledError:
             pass
         finally:
-            vendor_stream.unsubscribe("all", queue)
+            vendor_stream.unsubscribe(canteen_channel, queue)
     return EventSourceResponse(event_generator(), ping=30)
 
 
@@ -303,3 +319,118 @@ async def add_staff(request: StaffRequest, db: AsyncSession = Depends(get_db), v
     await db.refresh(member)
     return {"id": str(member.id), "name": member.name, "role": member.role, "status": member.status,
             "imageUrl": member.image_url, "image_url": member.image_url}
+
+
+# ── Image Upload & Management ─────────────────────────────────────
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@router.post("/upload/image", status_code=201)
+async def upload_image(
+    file: UploadFile = File(...),
+    vendor=Depends(get_current_vendor)
+):
+    """Allows vendors to upload photos for menu items or canteen assets."""
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        raise BadRequestException(f"Unsupported file format '{ext}'. Allowed: JPG, JPEG, PNG, WEBP, GIF")
+
+    if file.content_type and not file.content_type.startswith("image/"):
+        raise BadRequestException(f"Invalid content type: {file.content_type}")
+
+    contents = await file.read()
+    if len(contents) > MAX_IMAGE_SIZE_BYTES:
+        raise BadRequestException(f"File size ({len(contents) / (1024*1024):.1f}MB) exceeds 10MB limit")
+
+    canteen_id = str(vendor.get("canteen_id") or "common")
+    canteen_upload_dir = os.path.join(settings.UPLOAD_DIR, "menu_items", canteen_id)
+    os.makedirs(canteen_upload_dir, exist_ok=True)
+
+    unique_filename = f"{uuid.uuid4().hex}{ext}"
+    file_path = os.path.join(canteen_upload_dir, unique_filename)
+
+    with open(file_path, "wb") as f:
+        f.write(contents)
+
+    relative_url = f"/uploads/menu_items/{canteen_id}/{unique_filename}"
+    return {
+        "imageUrl": relative_url,
+        "image_url": relative_url,
+        "filename": unique_filename,
+        "sizeBytes": len(contents)
+    }
+
+
+@router.get("/images")
+async def list_images(
+    db: AsyncSession = Depends(get_db),
+    vendor=Depends(get_current_vendor)
+):
+    """Returns all images uploaded by this vendor as well as images assigned to menu items."""
+    canteen_id = str(vendor.get("canteen_id") or "common")
+    canteen_upload_dir = os.path.join(settings.UPLOAD_DIR, "menu_items", canteen_id)
+
+    uploaded_images = []
+    if os.path.exists(canteen_upload_dir):
+        for entry in os.scandir(canteen_upload_dir):
+            if entry.is_file():
+                stat = entry.stat()
+                uploaded_images.append({
+                    "filename": entry.name,
+                    "imageUrl": f"/uploads/menu_items/{canteen_id}/{entry.name}",
+                    "image_url": f"/uploads/menu_items/{canteen_id}/{entry.name}",
+                    "sizeBytes": stat.st_size,
+                    "uploadedAt": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+                })
+        uploaded_images.sort(key=lambda x: x["uploadedAt"], reverse=True)
+
+    # Menu items currently using an image
+    menu_result = await db.execute(
+        select(MenuItem.id, MenuItem.name, MenuItem.image_url)
+        .where(MenuItem.canteen_id == vendor.get("canteen_id"), MenuItem.image_url.isnot(None))
+    )
+    assigned_images = [
+        {"menuItemId": str(row[0]), "menuItemName": row[1], "imageUrl": row[2]}
+        for row in menu_result.all()
+    ]
+
+    # Common library images from onfoodserver/app/static/images
+    library_images = []
+    if os.path.isdir(settings.STATIC_IMAGES_DIR):
+        for entry in os.scandir(settings.STATIC_IMAGES_DIR):
+            if entry.is_file() and not entry.name.startswith("."):
+                ext = os.path.splitext(entry.name)[1].lower()
+                if ext in ALLOWED_IMAGE_EXTENSIONS:
+                    library_images.append({
+                        "filename": entry.name,
+                        "imageUrl": f"/images/{entry.name}",
+                        "image_url": f"/images/{entry.name}",
+                    })
+        library_images.sort(key=lambda x: x["filename"].lower())
+
+    return {
+        "canteenId": canteen_id,
+        "uploadedImages": uploaded_images,
+        "assignedImages": assigned_images,
+        "libraryImages": library_images
+    }
+
+
+@router.delete("/images/{filename}")
+async def delete_image(
+    filename: str,
+    vendor=Depends(get_current_vendor)
+):
+    """Deletes an uploaded image from the canteen's upload directory."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise BadRequestException("Invalid filename")
+
+    canteen_id = str(vendor.get("canteen_id") or "common")
+    file_path = os.path.join(settings.UPLOAD_DIR, "menu_items", canteen_id, filename)
+    if not os.path.exists(file_path):
+        raise NotFoundException(f"Image '{filename}' not found")
+
+    os.remove(file_path)
+    return {"message": f"Image '{filename}' deleted successfully"}
+

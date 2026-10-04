@@ -63,14 +63,28 @@ class PostgresEventBridge:
                     await asyncio.sleep(5)
 
     async def notify(self, event_type: str, data: dict):
-        """Sends a notification payload to the database channel."""
+        """Sends a notification payload to the database channel.
+
+        Reuses the persistent listener connection when available to avoid
+        opening (and immediately closing) a new connection for every event.
+        """
+        payload = json.dumps({"event": event_type, "data": data})
+        # Escape single quotes in json payload for sql execution
+        safe_payload = payload.replace("'", "''")
+
+        # Fast path: reuse the long-lived listener connection
+        if self._conn and not self._conn.is_closed():
+            try:
+                await self._conn.execute(f"NOTIFY onfood_events, '{safe_payload}'")
+                return
+            except Exception:
+                pass  # fall through to one-shot connection
+
+        # Fallback: open a temporary connection (e.g. listener not started yet)
         dsn = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
         conn = None
         try:
             conn = await asyncpg.connect(dsn)
-            payload = json.dumps({"event": event_type, "data": data})
-            # Escape single quotes in json payload for sql execution
-            safe_payload = payload.replace("'", "''")
             await conn.execute(f"NOTIFY onfood_events, '{safe_payload}'")
         except Exception as e:
             print(f"[Bridge Error] Failed to send NOTIFY: {e}")

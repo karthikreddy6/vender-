@@ -184,6 +184,74 @@ Content-Type: application/json
 
 Use `is_available: false` when an item is temporarily out of stock. The customer server will stop showing or accepting that item after the shared database is updated.
 
+## Image Upload & Gallery APIs
+
+### Upload item photo
+```http
+POST /api/vendor/upload/image
+Authorization: Bearer JWT_TOKEN
+Content-Type: multipart/form-data
+```
+Body (form-data):
+- `file`: `<image binary>` (JPG, JPEG, PNG, WEBP, GIF up to 10MB)
+
+Response (201 Created):
+```json
+{
+  "imageUrl": "/uploads/menu_items/{canteenId}/{uniqueFilename}.jpg",
+  "image_url": "/uploads/menu_items/{canteenId}/{uniqueFilename}.jpg",
+  "filename": "{uniqueFilename}.jpg",
+  "sizeBytes": 204850
+}
+```
+
+### See all images for vendor canteen
+```http
+GET /api/vendor/images
+Authorization: Bearer JWT_TOKEN
+```
+
+Response (200 OK):
+```json
+{
+  "canteenId": "898ddd58-27ad-4381-8f79-4cae6d71d41a",
+  "uploadedImages": [
+    {
+      "filename": "4f8b2c91.jpg",
+      "imageUrl": "/uploads/menu_items/898ddd58.../4f8b2c91.jpg",
+      "sizeBytes": 204850,
+      "uploadedAt": "2026-09-18T11:00:00Z"
+    }
+  ],
+  "assignedImages": [
+    {
+      "menuItemId": "cac90a46-ce2f-41af-bc6b-2705b128d930",
+      "menuItemName": "Chicken Biryani",
+      "imageUrl": "/images/chicken-biryani.png"
+    }
+  ]
+}
+```
+
+### Delete uploaded image
+```http
+DELETE /api/vendor/images/{filename}
+Authorization: Bearer JWT_TOKEN
+```
+
+Response (200 OK):
+```json
+{
+  "message": "Image '4f8b2c91.jpg' deleted successfully"
+}
+```
+
+### Static image serving
+Static images are directly accessible via HTTP GET:
+```http
+GET /uploads/menu_items/{canteenId}/{filename}
+```
+
 ## Kitchen APIs
 
 ### Get kitchen settings

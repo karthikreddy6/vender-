@@ -18,12 +18,8 @@ class BadRequestException(Exception):
 
 # --- Spring Boot Error Formatter ---
 def make_spring_error_response(status_code: int, error_name: str, message: str) -> JSONResponse:
-    # Use ISO format without timezone or with +00:00 to match typical Java Jackson format
-    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    # Format: 2026-07-08T13:22:43
-    # Slice off the microseconds if present to match the exact pattern "YYYY-MM-DDTHH:MM:SS"
-    if "." in timestamp:
-        timestamp = timestamp.split(".")[0]
+    # Format: 2026-07-08T13:22:43 (matches typical Java Jackson pattern)
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         
     return JSONResponse(
         status_code=status_code,

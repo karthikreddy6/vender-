@@ -6,11 +6,15 @@ services:
     restart: always
     ports:
       - "8001:8001"
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@host.docker.internal:5432/onfood
-      - JWT_SECRET=super_secret_key_for_development_purposes
-      - JWT_ISSUER=onfood
       - SQL_ECHO=false
+      - STATIC_IMAGES_DIR=/app/static/images
+    volumes:
+      - ../onfoodserver/app/static/images:/app/static/images:ro
+      - ./uploads:/app/uploads
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
